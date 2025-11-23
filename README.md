@@ -16,6 +16,8 @@ it sends push notifications when:
 
 ## installing
 
+- This script now supports Docker, and you can either build the image locally or run the one attached to the repo which is automatically built on push to the main branch.
+
 - install python3. i suggest homebrew, winget, or just use the installer: https://www.python.org/downloads/
   - _this script might require python3.11_
 - install the `requests` module with `pip3 install requests` (or use `pipenv install` to automatically install dependencies)
@@ -41,6 +43,7 @@ options:
   --server SERVER       ntfy server to POST notifications to – default: https://ntfy.sh
   --log-dir PATH        path to IRC logs (continuously checks for newest file to parse)
   --nick NICK           your IRC nick
+  --test-phrase         optional test phrase to trigger test notification (useful for verifying setup)
   --check-bot-nicks, --no-check-bot-nicks
                         attempt to parse bot's nick. disable if your log files are not like '<nick> message' – default: enabled
   --bot-nicks NICKS     comma-separated list of bot nicks to watch – default: Gatekeeper
@@ -56,6 +59,18 @@ On mobile, I suggest enabling the 'Instant delivery' feature as well as 'Keep al
   highest priority'. These will enable fastest and most reliable delivery of the
   notification, and your phone will continuously alarm when your interview is ready.
 ```
+
+If Deploying With Docker, these are the environment variables provideed as well as the defaults for them:
+
+TOPIC="" \
+NICK="" \
+SERVER="https://ntfy.sh/" \
+LOG_DIR="/logs" \
+BOT_NICKS="Gatekeeper" \
+MODE="red" \
+CHECK_BOT_NICKS="true" \
+TEST_PHRASE="" \
+VERBOSE="0"
 
 ## testing/troubleshooting
 

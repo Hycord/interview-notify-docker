@@ -26,7 +26,8 @@ parser.add_argument('--log-dir', required=True, dest='path', type=Path, help='pa
 parser.add_argument('--nick', required=True, help='your IRC nick')
 parser.add_argument('--check-bot-nicks', default=True, action=argparse.BooleanOptionalAction, help="attempt to parse bot's nick. disable if your log files are not like '<nick> message' – default: enabled")
 parser.add_argument('--bot-nicks', metavar='NICKS', default='Gatekeeper', help='comma-separated list of bot nicks to watch – default: Gatekeeper')
-parser.add_argument('--mode', choices=['red', 'ops'], default='red', help='interview mode (affects triggers) – default: red')
+parser.add_argument('--mode', choices=['red', 'ops'], default='red', help='interview mode (affects triggers) – default: red')
+parser.add_argument('--test-phrase', help='optional test phrase to trigger test notification (useful for verifying setup)')
 parser.add_argument('-v', action='count', default=5, dest='verbose', help='verbose (invoke multiple times for more verbosity)')
 parser.add_argument('--version', action='version', version='{} v{}'.format(parser.prog, VERSION))
 
@@ -49,11 +50,13 @@ def log_scan():
       parser.start()
 
 def find_latest_log():
-  """Find latest log file"""
-  files = [f for f in args.path.iterdir() if f.is_file() and f.name not in ['.DS_Store', 'thumbs.db']]
+  """Find latest log file recursively in all subdirectories"""
+  files = [f for f in args.path.rglob('*') if f.is_file() and f.name not in ['.DS_Store', 'thumbs.db']]
   if len(files) == 0:
     crit_quit('no log files found')
-  return max(files, key=lambda f: f.stat().st_mtime)
+  latest = max(files, key=lambda f: f.stat().st_mtime)
+  logging.debug('scanner: found {} log files, latest: "{}"'.format(len(files), latest.relative_to(args.path)))
+  return latest
 
 def spawn_parser(log_path):
   """Spawn new parser thread"""
@@ -64,10 +67,14 @@ def spawn_parser(log_path):
 
 def log_parse(log_path, parser_stop):
   """Parse log file and notify on triggers (parser thread)"""
-  logging.info('parser: using "{}"'.format(log_path.name))
+  relative_path = log_path.relative_to(args.path) if log_path.is_relative_to(args.path) else log_path.name
+  logging.info('parser: using "{}"'.format(relative_path))
   for line in tail(log_path, parser_stop):
     logging.debug(line)
-    if check_trigger(line, 'Currently interviewing: {}'.format(args.nick)):
+    if args.test_phrase and args.test_phrase in line:
+      logging.info('test phrase detected ✅')
+      notify(line, title='Test notification - system working!', tags='white_check_mark', priority=4)
+    elif check_trigger(line, 'Currently interviewing: {}'.format(args.nick)):
       logging.info('YOUR INTERVIEW IS HAPPENING ❗')
       notify(line, title='Your interview is happening❗', tags='rotating_light', priority=5)
     elif check_trigger(line, 'Currently interviewing:'):
@@ -76,9 +83,9 @@ def log_parse(log_path, parser_stop):
     elif check_trigger(line, '{}:'.format(args.nick), disregard_bot_nicks=True):
       logging.info('mention detected ⚠️')
       notify(line, title="You've been mentioned", tags='wave')
-    elif check_words(line, triggers=['quit', 'disconnect', 'part', 'left', 'leave']):
-      logging.info('netsplit detected ⚠️')
-      notify(line, title="Netsplit detected – requeue within 10min!", tags='electric_plug', priority=5)
+    elif check_disconnect(line):
+      logging.info('disconnect/netsplit detected ⚠️')
+      notify(line, title="Disconnect/netsplit detected – requeue within 10min!", tags='electric_plug', priority=5)
     elif check_words(line, triggers=['kick'], check_nick=True):
       logging.info('kick detected ⚠️')
       notify(line, title="You've been kicked – rejoin & requeue ASAP!", tags='anger', priority=5)
@@ -116,6 +123,19 @@ def check_words(line, triggers, check_nick=False):
       else:
         if bot in line and trigger.lower() in line.lower():
           return True
+  return False
+
+def check_disconnect(line):
+  """Check for disconnect/netsplit messages (including non-bot messages)"""
+  disconnect_triggers = ['quit', 'disconnect', 'part', 'left', 'leave', 'has quit', 'has disconnected', 'has left']
+  line_lower = line.lower()
+  
+  # Check if your nick is in the line with any disconnect trigger
+  if args.nick.lower() in line_lower:
+    for trigger in disconnect_triggers:
+      if trigger in line_lower:
+        return True
+  
   return False
 
 def remove_html_tags(text):
